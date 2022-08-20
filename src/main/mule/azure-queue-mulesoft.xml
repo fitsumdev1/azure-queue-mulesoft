@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:mongo="http://www.mulesoft.org/schema/mule/mongo" xmlns:amqp="http://www.mulesoft.org/schema/mule/amqp"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:volante="http://www.mulesoft.org/schema/mule/volante" xmlns:azure-storage="http://www.mulesoft.org/schema/mule/azure-storage" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/azure-storage http://www.mulesoft.org/schema/mule/azure-storage/current/mule-azure-storage.xsd
+http://www.mulesoft.org/schema/mule/volante http://www.mulesoft.org/schema/mule/volante/current/mule-volante.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/amqp http://www.mulesoft.org/schema/mule/amqp/current/mule-amqp.xsd
+http://www.mulesoft.org/schema/mule/mongo http://www.mulesoft.org/schema/mule/mongo/current/mule-mongo.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="fdc843d3-44d3-4b74-8fe4-acd90c41a829" >
+		<http:listener-connection host="0.0.0.0" port="8088" />
+	</http:listener-config>
+	<azure-storage:config name="Azure_Storage_Config" doc:name="Azure Storage Config" doc:id="9a175b5b-38aa-4a00-a8d9-6631efb954d3" >
+		<azure-storage:access-key-azure-connection accountName="fitsumstorage" accountKey="DefaultEndpointsProtocol=https;AccountName=fitsumstorage;AccountKey=ttWVCv3nDJhF9RDSg9Ov/oJjxCP6jP9ctL0w/7s9PrbK4kue16PWBmKExovpTSkOoA4XjVa3v/+j+ASt5sVAYg==;EndpointSuffix=core.windows.net"/>
+	</azure-storage:config>
+	<amqp:config name="AMQP_Config" doc:name="AMQP Config" doc:id="655c00e1-1420-40ac-9e71-13097b27665b" >
+		<amqp:connection host="localhost" port="5672" username="guest" password="guest" />
+	</amqp:config>
+	<mongo:config name="MongoDB_Config" doc:name="MongoDB Config" doc:id="5b1e6626-ffa2-4174-b534-d61b9d08858e" >
+		<mongo:connection database="automobile" >
+			<mongo:server-addresses >
+				<mongo:server-address host="localhost" />
+			</mongo:server-addresses>
+		</mongo:connection>
+	</mongo:config>
+	<flow name="azure-queue-mulesoftFlow" doc:id="16a53c9a-eb8b-4d7d-be0d-8efdda0e03a7" >
+		<http:listener doc:name="Listener" doc:id="3630b5d6-fe44-403b-a353-453b3000c95f" config-ref="HTTP_Listener_config" path="/queue"/>
+		<azure-storage:peek-message-from-queue doc:name="Peek message from queue" doc:id="a750c548-2371-4508-a611-91ec22c3cccd" config-ref="Azure_Storage_Config" queueName='#["fitsum-queue"]' />
+		<ee:transform doc:name="Transform Message" doc:id="7fdc0f4c-d8e9-4741-9cc7-ecc2a226a9be">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+
+var p = read(payload, "application/json")
+---
+p]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="value" ><![CDATA[%dw 2.0
+output application/json
+
+var p = read(payload, "application/json")
+---
+p]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<scatter-gather doc:name="Scatter-Gather" doc:id="b3e3c82b-b057-4c23-af4e-710341345db7" >
+			<route >
+				<amqp:publish doc:name="Publish" doc:id="a1026c5f-0224-40e1-9ab7-e940a3ea38e7" config-ref="AMQP_Config" exchangeName='#["demo-batch-exchange"]'>
+					<amqp:routing-keys >
+						<amqp:routing-key value="demo-key" />
+					</amqp:routing-keys>
+				</amqp:publish>
+			</route>
+			<route >
+				<mongo:insert-document doc:name="Insert document" doc:id="7aeabb34-6400-4f18-a3c1-62d0f87fe853" config-ref="MongoDB_Config" collectionName="demo-collection"/>
+			</route>
+		</scatter-gather>
+		<ee:transform doc:name="Transform Message" doc:id="50147a8e-443f-4213-ae3e-b3178164599c" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+vars.value]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+</mule>
